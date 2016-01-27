@@ -4,9 +4,15 @@ namespace N98\Magento\Command\MagentoConnect;
 
 use N98\Magento\Command\AbstractMagentoCommand;
 use N98\Util\OperatingSystem;
+use RuntimeException;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
+/**
+ * Class AbstractConnectCommand
+ *
+ * @package N98\Magento\Command\MagentoConnect
+ */
 abstract class AbstractConnectCommand extends AbstractMagentoCommand
 {
     /**
@@ -15,9 +21,10 @@ abstract class AbstractConnectCommand extends AbstractMagentoCommand
     protected $mageScript = null;
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
-     * @throws \Exception
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
+     * @throws RuntimeException
      */
     private function findMageScript(InputInterface $input, OutputInterface $output)
     {
@@ -26,11 +33,11 @@ abstract class AbstractConnectCommand extends AbstractMagentoCommand
             @chdir($this->_magentoRootFolder);
             $this->mageScript = './mage';
             if (!is_file($this->mageScript)) {
-                throw new \Exception('Could not find "mage" shell script in current installation');
+                throw new RuntimeException('Could not find "mage" shell script in current installation');
             }
             if (!is_executable($this->mageScript)) {
                 if (!@chmod($this->mageScript, 0755)) {
-                    throw new \Exception('Cannot make "mage" shell script executable. Please chmod the file manually.');
+                    throw new RuntimeException('Cannot make "mage" shell script executable. Please chmod the file manually.');
                 }
             }
             if (!strstr(shell_exec($this->mageScript . ' list-channels'), 'community')) {
@@ -45,24 +52,28 @@ abstract class AbstractConnectCommand extends AbstractMagentoCommand
      */
     public function isEnabled()
     {
-        return !OperatingSystem::isWindows();
+        return function_exists('shell_exec') && !OperatingSystem::isWindows();
     }
 
     /**
      * @param string $line
-     * @return array
+     *
+     * @return string[]
      */
     protected function matchConnectLine($line)
     {
         $matches = array();
-        preg_match('/([a-zA-Z0-9-_]+):\s([0-9.]+)\s([a-z]+)/', $line, $matches);
+        // expected format "Package: Version Stability[,Version Stability][,Version Stability]"
+        $pattern = '/([a-zA-Z0-9-_]+):\s([0-9.]+)\s([a-z]+),?([0-9.]+)?\s?([a-z]+)?,?([0-9.]+)?\s?([a-z]+)?/';
+        preg_match($pattern, $line, $matches);
         return $matches;
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
-     * @param string $mageScriptParams
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     * @param string          $mageScriptParams
+     *
      * @return string
      */
     protected function callMageScript(InputInterface $input, OutputInterface $output, $mageScriptParams)
@@ -74,6 +85,7 @@ abstract class AbstractConnectCommand extends AbstractMagentoCommand
     /**
      * @param string $packageName
      * @param string $searchPackageName
+     *
      * @return bool
      */
     protected function isAlternative($packageName, $searchPackageName)
@@ -84,32 +96,20 @@ abstract class AbstractConnectCommand extends AbstractMagentoCommand
     }
 
     /**
-     * @param array $alternatives
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param array           $alternatives
+     * @param OutputInterface $output
+     *
      * @return string
      */
-    protected function askForAlternativePackage($alternatives, InputInterface $input, OutputInterface $output)
+    protected function askForAlternativePackage($alternatives, OutputInterface $output)
     {
-        foreach ($alternatives as $key => $package) {
-            $question[] = '<comment>[' . ($key+1) . ']</comment> ' . $package . "\n";
-        }
-        $question[] = "<question>Use alternative package? :</question> ";
-
-        $packageNumber = $this->getHelper('dialog')->askAndValidate($output, $question, function($typeInput) use ($alternatives) {
-            if (!in_array($typeInput, range(1, count($alternatives)))) {
-                throw new \InvalidArgumentException('Invalid type');
-            }
-
-            return $typeInput;
-        });
-
-        return $alternatives[$packageNumber - 1];
+        return $this->askForArrayEntry($alternatives, $output, 'Use alternative package? :');
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
      * @return int|void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
@@ -135,13 +135,9 @@ abstract class AbstractConnectCommand extends AbstractMagentoCommand
         if ($found) {
             $this->doAction($input, $output, $searchPackage);
         } else {
-            $output->writeln('<comment>Could not found package.</comment>');
+            $output->writeln('<comment>Could not find package.</comment>');
             if (count($alternatives) > 0) {
-                $this->doAction(
-                    $input,
-                    $output,
-                    $this->askForAlternativePackage($alternatives, $input, $output)
-                );
+                $this->doAction($input, $output, $this->askForAlternativePackage($alternatives, $output));
             }
         }
     }

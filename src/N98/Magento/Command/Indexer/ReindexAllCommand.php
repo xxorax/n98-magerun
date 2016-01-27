@@ -2,9 +2,8 @@
 
 namespace N98\Magento\Command\Indexer;
 
-use Symfony\Component\Console\Input\InputArgument;
+use Exception;
 use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 class ReindexAllCommand extends AbstractIndexerCommand
@@ -20,8 +19,9 @@ class ReindexAllCommand extends AbstractIndexerCommand
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
      * @return int|void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
@@ -35,14 +35,32 @@ class ReindexAllCommand extends AbstractIndexerCommand
                 \Mage::dispatchEvent('shell_reindex_init_process');
                 $indexCollection = $this->_getIndexerModel()->getProcessesCollection();
                 foreach ($indexCollection as $indexer) {
+                    $output->writeln('<info>Started reindex of: <comment>' . $indexer->getIndexerCode() . '</comment></info>');
+                    /**
+                     * Try to estimate runtime. If index was aborted or never created we have a timestamp < 0
+                     */
+                    $runtimeInSeconds = $this->getRuntimeInSeconds($indexer);
+                    if ($runtimeInSeconds > 0) {
+                        $estimatedEnd = new \DateTime('now', new \DateTimeZone('UTC'));
+                        $estimatedEnd->add(new \DateInterval('PT' . $runtimeInSeconds . 'S'));
+                        $output->writeln(
+                            '<info>Estimated end: <comment>' . $estimatedEnd->format('Y-m-d H:i:s T') . '</comment></info>'
+                        );
+                    }
+                    $startTime = new \DateTime('now');
+                    $dateTimeUtils = new \N98\Util\DateTime();
                     $indexer->reindexEverything();
                     \Mage::dispatchEvent($indexer->getIndexerCode() . '_shell_reindex_after');
+                    $endTime = new \DateTime('now');
                     $output->writeln(
-                        '<info>Successfully reindexed</info> <comment>' . $indexer->getIndexerCode() . '</comment>'
+                        '<info>Successfully reindexed <comment>' . $indexer->getIndexerCode() . '</comment> (Runtime: <comment>' . $dateTimeUtils->getDifferenceAsString(
+                            $startTime,
+                            $endTime
+                        ) . '</comment>)</info>'
                     );
                 }
                 \Mage::dispatchEvent('shell_reindex_init_process');
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 \Mage::dispatchEvent('shell_reindex_init_process');
             }
         }

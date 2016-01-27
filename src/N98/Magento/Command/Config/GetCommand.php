@@ -5,7 +5,9 @@ namespace N98\Magento\Command\Config;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\Output;
 use Symfony\Component\Console\Output\OutputInterface;
+use N98\Util\Console\Helper\Table\Renderer\RendererFactory;
 
 class GetCommand extends AbstractConfigCommand
 {
@@ -19,7 +21,7 @@ If <info>path</info> is not set, all available config items will be listed.
 The <info>path</info> may contain wildcards (*).
 If <info>path</info> ends with a trailing slash, all child items will be listed. E.g.
 
-    config:get web/ 
+    config:get web/
 is the same as
     config:get web/*
 EOT
@@ -30,6 +32,12 @@ EOT
             ->addOption('decrypt', null, InputOption::VALUE_NONE, 'Decrypt the config value using local.xml\'s crypt key')
             ->addOption('update-script', null, InputOption::VALUE_NONE, 'Output as update script lines')
             ->addOption('magerun-script', null, InputOption::VALUE_NONE, 'Output for usage with config:set')
+            ->addOption(
+                'format',
+                null,
+                InputOption::VALUE_OPTIONAL,
+                'Output Format. One of [' . implode(',', RendererFactory::getFormats()) . ']'
+            )
         ;
 
         $help = <<<HELP
@@ -39,8 +47,9 @@ HELP;
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
      * @return int|void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
@@ -60,12 +69,7 @@ HELP;
             ));
 
             if ($scopeId = $input->getOption('scope')) {
-                $collection->addFieldToFilter(
-                    'scope',
-                    array(
-                         'eq' => $scopeId
-                    )
-                );
+                $collection->addFieldToFilter('scope', array('eq' => $scopeId));
             }
 
             if ($scopeId = $input->getOption('scope-id')) {
@@ -85,7 +89,7 @@ HELP;
 
             $collection->addOrder('scope_id', 'ASC');
 
-            if($collection->count() == 0) {
+            if ($collection->count() == 0) {
                 $output->writeln(sprintf("Couldn't find a config value for \"%s\"", $input->getArgument('path')));
                 return;
             }
@@ -106,30 +110,31 @@ HELP;
             } elseif ($input->getOption('magerun-script')) {
                 $this->renderAsMagerunScript($output, $table);
             } else {
-                $this->renderAsTable($output, $table);
+                $this->renderAsTable($output, $table, $input->getOption('format'));
             }
         }
     }
 
     /**
      * @param OutputInterface $output
-     * @param array           $table
+     * @param array $table
+     * @param string $format
      */
-    protected function renderAsTable(OutputInterface $output, $table)
+    protected function renderAsTable(OutputInterface $output, $table, $format)
     {
         $formattedTable = array();
         foreach ($table as $row) {
             $formattedTable[] = array(
                 $row['path'],
-                str_pad($row['scope'], 8, ' ', STR_PAD_BOTH),
-                str_pad($row['scope_id'], 8, ' ', STR_PAD_BOTH),
-                substr($row['value'], 0, 50)
+                $row['scope'],
+                $row['scope_id'],
+                $row['value'],
             );
         }
         $this->getHelper('table')
             ->setHeaders(array('Path', 'Scope', 'Scope-ID', 'Value'))
             ->setRows($formattedTable)
-            ->render($output);
+            ->renderByFormat($output, $formattedTable, $format);
     }
 
     /**
@@ -172,10 +177,10 @@ HELP;
     {
         foreach ($table as $row) {
             $value = str_replace(array("\n", "\r"), array('\n', '\r'), $row['value']);
-            $line = 'config:set ' . $row['path']
-                  . ' --scope-id=' . $row['scope_id']
-                  . ' --scope=' . $row['scope']
-                  . ' ' . escapeshellarg($value);
+            $line = sprintf(
+                'config:set %s --scope-id=%s --scope=%s %s', $row['path'], $row['scope_id'], $row['scope'],
+                escapeshellarg($value)
+            );
             $output->writeln($line);
         }
     }

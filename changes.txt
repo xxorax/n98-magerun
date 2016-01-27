@@ -2,28 +2,29 @@
 RECENT CHANGES
 **************
 
-======
-1.82.0
-======
+=======
+1.97.10
+=======
 
-* Moved sys:check command logic into dist config
-* Changed Magento detection (for future Magento 2 support)
-* Adds --noDownload option to InstallCommand (by Manuele Menozzi)
-* Fix: config:set fix --encrypt input option (by Robert Coleman)
-* Updated 3rd party dependencies
+* #746 Try composer required version (reported by Vinai Kopp)
 
 ======
-1.81.0
+1.97.9
 ======
 
-* script command: Do not prompt for variables, defined with "--define" option.
-* script command: Added support for choices
-* script command: Fixed resolution of other variables
-* Added --define option to script:repo:run command
-* Updated Symfony dependencies
-* Fix flush to use Enterprise_PageCache_Model_Cache only for 1.11 and up (by Jay Becker)
-* Added an '--add-routines' option to db:dump command. (by Pieter Hoste)
-* #238 - Enable symlinks globally, with interactive
+* #741 Fix remove customer exec dependency (by Tom Klingenberg)
+* #745 Fix Sys:cron:run all marked with [1] (by Christian Münch)
+* Test and code improvements (by Tom Klingenberg)
+
+======
+1.97.8
+======
+
+* #727 Fix sys:cron:list cron expression display (by Robbie Averill)
+* #736 Fix missing Admin store in dev:template-hints (by Steve Robbins)
+* #733 Fix extenions:search display (by EmPeWe)
+* #732 Fix DB:console unknown variable (reported by robinero)
+* #729 Fix YAML::parse input type (by Dane MacMillan)
 
 -----------------------------------------
 SEE FULL CHANGELOG: http://bit.ly/10IDU1H

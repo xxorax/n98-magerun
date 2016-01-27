@@ -28,8 +28,9 @@ class ClassLookupCommand extends AbstractMagentoCommand
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
      * @return int|void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
@@ -38,6 +39,10 @@ class ClassLookupCommand extends AbstractMagentoCommand
         if ($this->initMagento()) {
             $resolved = $this->_getConfig()->getGroupedClassName($input->getArgument('type'), $input->getArgument('name'));
             $output->writeln(ucfirst($input->getArgument('type')) . ' <comment>' . $input->getArgument('name') . "</comment> resolves to <comment>" . $resolved . '</comment>');
+            
+            if (!class_exists('\\' . $resolved)) {
+                $output->writeln('<info>Note:</info> Class <comment>' . $resolved . '</comment> does not exist!');
+            }
         }
     }
 }

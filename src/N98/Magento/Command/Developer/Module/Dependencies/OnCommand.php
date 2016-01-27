@@ -2,12 +2,14 @@
 
 namespace N98\Magento\Command\Developer\Module\Dependencies;
 
-use Installer\Exception;
+use Exception;
+use InvalidArgumentException;
 use N98\Magento\Command\AbstractMagentoCommand;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use N98\Util\Console\Helper\Table\Renderer\RendererFactory;
 
 class OnCommand extends AbstractMagentoCommand
 {
@@ -15,22 +17,34 @@ class OnCommand extends AbstractMagentoCommand
 
     protected function configure()
     {
-        $this->setName('dev:module:dependencies:on')
-        ->addArgument('moduleName', InputArgument::REQUIRED, 'Module to show dependencies')
-        ->addOption('all', 'a', InputOption::VALUE_NONE, 'Show all dependencies (dependencies of dependencies)')
-        ->setDescription('Show list of modules which given module depends on');
+        $this
+            ->setName('dev:module:dependencies:on')
+            ->addArgument('moduleName', InputArgument::REQUIRED, 'Module to show dependencies')
+            ->addOption('all', 'a', InputOption::VALUE_NONE, 'Show all dependencies (dependencies of dependencies)')
+            ->setDescription('Show list of modules which given module depends on')
+            ->addOption(
+                'format',
+                null,
+                InputOption::VALUE_OPTIONAL,
+                'Output Format. One of [' . implode(',', RendererFactory::getFormats()) . ']'
+            )
+        ;
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
      * @return int|void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $moduleName = $input->getArgument('moduleName');
         $recursive  = $input->getOption('all');
-        $this->writeSection($output, sprintf('List of module %s dependencies', $moduleName));
+
+        if ($input->getOption('format') === null) {
+            $this->writeSection($output, sprintf('List of module %s dependencies', $moduleName));
+        }
 
         $this->detectMagento($output, true);
         $this->initMagento();
@@ -39,15 +53,18 @@ class OnCommand extends AbstractMagentoCommand
             $dependencies = $this->findModuleDependencies($moduleName, $recursive);
             if (!empty($dependencies)) {
                 usort($dependencies, array($this, 'sortDependencies'));
+            } else {
+                $dependencies = array();
+            }
+            if ($input->getOption('format') === null && count($dependencies) === 0) {
+                $output->writeln(sprintf("Module %s doesn't have dependencies", $moduleName));
+            } else {
                 $this->getHelper('table')
                     ->setHeaders(array('Name', 'Status', 'Current installed version', 'Code pool'))
-                    ->setRows($dependencies)
                     ->setPadType(STR_PAD_LEFT)
-                    ->render($output);
-            } else {
-                $output->writeln(sprintf("Module %s doesn't have dependencies", $moduleName));
+                    ->renderByFormat($output, $dependencies, $input->getOption('format'));
             }
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $output->writeln($e->getMessage());
         }
     }
@@ -59,7 +76,7 @@ class OnCommand extends AbstractMagentoCommand
      * @param string $moduleName
      * @param bool $recursive
      * @return array
-     * @throws \InvalidArgumentException
+     * @throws InvalidArgumentException
      */
     protected function findModuleDependencies($moduleName, $recursive = false)
     {
@@ -95,7 +112,7 @@ class OnCommand extends AbstractMagentoCommand
 
             return $dependencies;
         } else {
-            throw new \InvalidArgumentException(sprintf("Module %s was not found", $moduleName));
+            throw new InvalidArgumentException(sprintf("Module %s was not found", $moduleName));
         }
     }
 

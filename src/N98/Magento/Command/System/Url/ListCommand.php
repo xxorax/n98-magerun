@@ -2,6 +2,7 @@
 
 namespace N98\Magento\Command\System\Url;
 
+use InvalidArgumentException;
 use N98\Magento\Command\AbstractMagentoCommand;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -56,11 +57,12 @@ HELP;
     /**
      * Execute command
      *
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
-     * @throws \InvalidArgumentException
-     * @throws \Mage_Core_Model_Store_Exception
+     * @param InputInterface $input
+     * @param OutputInterface $output
+     *
      * @return int|void
+     * @throws InvalidArgumentException
+     * @throws \Mage_Core_Model_Store_Exception
      */
     protected function execute(InputInterface $input, OutputInterface $output)
     {
@@ -88,53 +90,57 @@ HELP;
                 $linkBaseUrl = $currentStore->getBaseUrl(\Mage_Core_Model_Store::URL_TYPE_LINK);
 
                 if ($input->getOption('add-categories')) {
-                    $collection = \Mage::getResourceModel('sitemap/catalog_category')->getCollection($storeId);
-                    if ($collection) {
-                        foreach ($collection as $item) { /* @var $item \Varien_Object */
-                            $urls[] = $linkBaseUrl . $item->getUrl();
-                        }
-                        unset($collection);
-                    }
+                    $urls = $this->getUrls('sitemap/catalog_category', $linkBaseUrl, $storeId, $urls);
                 }
 
                 if ($input->getOption('add-products')) {
-                    $collection = \Mage::getResourceModel('sitemap/catalog_product')->getCollection($storeId);
-                    if ($collection) {
-                        foreach ($collection as $item) { /* @var $item \Varien_Object */
-                            $urls[] = $linkBaseUrl . $item->getUrl();
-                        }
-                        unset($collection);
-                    }
+                    $urls = $this->getUrls('sitemap/catalog_product', $linkBaseUrl, $storeId, $urls);
                 }
 
                 if ($input->getOption('add-cmspages')) {
-                    $collection = \Mage::getResourceModel('sitemap/cms_page')->getCollection($storeId);
-                    if ($collection) {
-                        foreach ($collection as $item) { /* @var $item \Varien_Object */
-                            $urls[] = $linkBaseUrl . $item->getUrl();
-                        }
-                        unset($collection);
-                    }
-                }
-
-            } // foreach ($stores as $storeId)
-
-            if (count($urls) > 0) {
-                foreach ($urls as $url) {
-
-                    // pre-process
-                    $line = $input->getArgument('linetemplate');
-                    $line = str_replace('{url}', $url, $line);
-
-                    $parts = parse_url($url);
-                    foreach ($parts as $key => $value) {
-                        $line = str_replace('{'.$key.'}', $value, $line);
-                    }
-
-                    // ... and output
-                    $output->writeln($line);
+                    $urls = $this->getUrls('sitemap/cms_page', $linkBaseUrl, $storeId, $urls);
                 }
             }
+
+            if (count($urls) === 0) {
+                return;
+            }
+
+            foreach ($urls as $url) {
+
+                // pre-process
+                $line = $input->getArgument('linetemplate');
+                $line = str_replace('{url}', $url, $line);
+
+                $parts = parse_url($url);
+                foreach ($parts as $key => $value) {
+                    $line = str_replace('{' . $key . '}', $value, $line);
+                }
+
+                // ... and output
+                $output->writeln($line);
+            }
+
         }
+    }
+
+    /**
+     * @param string $resourceModel
+     * @param string $linkBaseUrl
+     * @param string $storeId
+     * @param array  $urls
+     *
+     * @return array
+     */
+    protected function getUrls($resourceModel, $linkBaseUrl, $storeId, array $urls) {
+        $collection = \Mage::getResourceModel($resourceModel)->getCollection($storeId);
+        if (!$collection) {
+            return $urls;
+        }
+        foreach ($collection as $item) {
+            /* @var $item \Varien_Object */
+            $urls[] = $linkBaseUrl . $item->getUrl();
+        }
+        return $urls;
     }
 }

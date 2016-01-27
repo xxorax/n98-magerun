@@ -2,11 +2,11 @@
 
 namespace N98\Magento\Command\System\Cron;
 
-use N98\Magento\Command\AbstractMagentoCommand;
-use Symfony\Component\Console\Input\InputArgument;
+use N98\Util\Console\Helper\TableHelper;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use N98\Util\Console\Helper\Table\Renderer\RendererFactory;
 
 class ListCommand extends AbstractCronCommand
 {
@@ -19,25 +19,38 @@ class ListCommand extends AbstractCronCommand
     {
         $this
             ->setName('sys:cron:list')
-            ->setDescription('Lists all cronjobs');
+            ->setDescription('Lists all cronjobs')
+            ->addOption(
+                'format',
+                null,
+                InputOption::VALUE_OPTIONAL,
+                'Output Format. One of [' . implode(',', RendererFactory::getFormats()) . ']'
+            )
+        ;
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
      * @return int|void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $this->detectMagento($output, true);
 
-        $this->writeSection($output, 'Cronjob List');
+        if ($input->getOption('format') === null) {
+            $this->writeSection($output, 'Cronjob List');
+        }
+
         $this->initMagento();
 
         $table = $this->getJobs();
-        $this->getHelper('table')
+
+        /** @var $tableHelper TableHelper */
+        $tableHelper = $this->getHelper('table');
+        $tableHelper
             ->setHeaders(array_keys(current($table)))
-            ->setRows($table)
-            ->render($output);
+            ->renderByFormat($output, $table, $input->getOption('format'));
     }
 }

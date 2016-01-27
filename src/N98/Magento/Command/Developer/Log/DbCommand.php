@@ -2,22 +2,20 @@
 
 namespace N98\Magento\Command\Developer\Log;
 
-use N98\Magento\Command\AbstractMagentoCommand;
-use N98\Magento\Command\Cache\ClearCommand as ClearCacheCommand;
-use Symfony\Component\Console\Input\InputArgument;
+use RuntimeException;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
-use Symfony\Component\Console\Input\StringInput;
 use Symfony\Component\Console\Output\OutputInterface;
 
 class DbCommand extends AbstractLogCommand
 {
     protected function configure()
     {
-        $this->setName('dev:log:db')
-             ->addOption('on', null, InputOption::VALUE_NONE, 'Force logging')
-             ->addOption('off', null, InputOption::VALUE_NONE, 'Disable logging')
-             ->setDescription('Turn on/off database query logging');
+        $this
+            ->setName('dev:log:db')
+            ->addOption('on', null, InputOption::VALUE_NONE, 'Force logging')
+            ->addOption('off', null, InputOption::VALUE_NONE, 'Disable logging')
+            ->setDescription('Turn on/off database query logging');
     }
 
     /**
@@ -29,8 +27,9 @@ class DbCommand extends AbstractLogCommand
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
      * @return int|void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
@@ -56,11 +55,11 @@ class DbCommand extends AbstractLogCommand
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface  $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
-     * @param string                                         $variable
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     * @param string          $variable
+     *
      * @return void
-     * @throws \Exception
      */
     protected function _replaceVariable($input, $output, $variable)
     {
@@ -70,7 +69,7 @@ class DbCommand extends AbstractLogCommand
         $debugLinePattern = "/protected\s" . '\\' . $variable . "\s*?=\s(false|true)/m";
         preg_match($debugLinePattern, $contents, $matches);
         if (!isset($matches[1])) {
-            throw new \Exception("Problem finding the \$_debug parameter");
+            throw new RuntimeException("Problem finding the \$_debug parameter");
         }
 
         $currentValue = $matches[1];
@@ -82,7 +81,7 @@ class DbCommand extends AbstractLogCommand
             $newValue = ($currentValue == 'false') ? 'true' : 'false';
         }
 
-        $output->writeln("<info>Changed <comment>" . $variable . "</comment> to <comment>" . $newValue  . "</comment></info>");
+        $output->writeln("<info>Changed <comment>" . $variable . "</comment> to <comment>" . $newValue . "</comment></info>");
 
         $contents = preg_replace($debugLinePattern, "protected " . $variable . " = " . $newValue, $contents);
         file_put_contents($varienAdapterPhpFile, $contents);

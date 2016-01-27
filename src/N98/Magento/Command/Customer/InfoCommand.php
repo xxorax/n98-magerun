@@ -2,6 +2,7 @@
 
 namespace N98\Magento\Command\Customer;
 
+use Exception;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -26,8 +27,9 @@ class InfoCommand extends AbstractCustomerCommand
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
      * @return int|void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
@@ -52,13 +54,12 @@ class InfoCommand extends AbstractCustomerCommand
                     continue;
                 }
                 try {
-                    //$attribute = \Mage::getSingleton('eav/config')->getAttribute('customer', $key);
                     $attribute = $customer->getResource()->getAttribute($key);
                     $table[] = array(
                         $attribute instanceof \Mage_Customer_Model_Attribute ? $attribute->getFrontend()->getLabel() : $key,
                         $attribute instanceof \Mage_Customer_Model_Attribute ? $attribute->getFrontend()->getValue($customer) : $value,
                     );
-                } catch (\Exception $e) {
+                } catch (Exception $e) {
                     $table[] = array($key, $value);
                 }
             }

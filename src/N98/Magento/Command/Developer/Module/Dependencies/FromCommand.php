@@ -2,12 +2,7 @@
 
 namespace N98\Magento\Command\Developer\Module\Dependencies;
 
-use Installer\Exception;
-use N98\Magento\Command\AbstractMagentoCommand;
-use Symfony\Component\Console\Input\InputArgument;
-use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
-use Symfony\Component\Console\Output\OutputInterface;
+use InvalidArgumentException;
 
 class FromCommand extends AbstractCommand
 {
@@ -23,13 +18,7 @@ class FromCommand extends AbstractCommand
     /**#@-*/
 
     /**
-     * Find dependencies of given module $moduleName.
-     * If $recursive = true, dependencies will be collected recursively for all module dependencies
-     *
-     * @param string $moduleName
-     * @param bool $recursive
-     * @return array
-     * @throws \InvalidArgumentException
+     * @inheritdoc
      */
     protected function findModuleDependencies($moduleName, $recursive = false)
     {
@@ -37,28 +26,33 @@ class FromCommand extends AbstractCommand
             $this->modules = \Mage::app()->getConfig()->getNode('modules')->asArray();
         }
 
-        if (isset($this->modules[$moduleName])) {
-            $dependencies = array();
-            foreach ($this->modules as $dependencyName => $module) {
-                if (isset($module['depends'][$moduleName])) {
-                    $dependencies[$dependencyName] = array(
-                        $dependencyName,
-                        isset($module['active']) ? $this->formatActive($module['active']) : '-',
-                        isset($module['version']) ? $module['version'] : '-',
-                        isset($module['codePool']) ? $module['codePool'] : '-',
-                    );
-                    if ($recursive) {
-                        $dependencies = array_merge(
-                            $dependencies,
-                            $this->findModuleDependencies($dependencyName, $recursive)
-                        );
-                    }
-                }
+        if (!isset($this->modules[$moduleName])) {
+            throw new InvalidArgumentException(sprintf("Module %s was not found", $moduleName));
+        }
+
+        $dependencies = array();
+        foreach ($this->modules as $dependencyName => $module) {
+
+            if (!isset($module['depends'][$moduleName])) {
+                continue;
             }
 
-            return $dependencies;
-        } else {
-            throw new \InvalidArgumentException(sprintf("Module %s was not found", $moduleName));
+            $dependencies[$dependencyName] = array(
+                $dependencyName,
+                isset($module['active']) ? $this->formatActive($module['active']) : '-',
+                isset($module['version']) ? $module['version'] : '-',
+                isset($module['codePool']) ? $module['codePool'] : '-',
+            );
+
+            if ($recursive) {
+                $dependencies = array_merge(
+                    $dependencies,
+                    $this->findModuleDependencies($dependencyName, $recursive)
+                );
+            }
+
         }
+
+        return $dependencies;
     }
 }

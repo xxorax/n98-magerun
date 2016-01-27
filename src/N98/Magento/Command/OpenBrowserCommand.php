@@ -3,10 +3,12 @@
 namespace N98\Magento\Command;
 
 use N98\Magento\Command\AbstractMagentoCommand;
+use RuntimeException;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Output\OutputInterface;
 use N98\Util\OperatingSystem;
+use N98\Util\Exec;
 
 class OpenBrowserCommand extends AbstractMagentoCommand
 {
@@ -20,8 +22,17 @@ class OpenBrowserCommand extends AbstractMagentoCommand
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @return bool
+     */
+    public function isEnabled()
+    {
+        return Exec::allowed();
+    }
+
+    /**
+     * @param InputInterface $input
+     * @param OutputInterface $output
+     * @throws RuntimeException
      * @return int|void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
@@ -43,7 +54,7 @@ class OpenBrowserCommand extends AbstractMagentoCommand
         }
 
         if (empty($opener)) {
-            throw new \RuntimeException('No opener command like xde-open, gnome-open, kde-open was found.');
+            throw new RuntimeException('No opener command like xde-open, gnome-open, kde-open was found.');
         }
 
         $this->detectMagento($output);
@@ -51,12 +62,12 @@ class OpenBrowserCommand extends AbstractMagentoCommand
             $store = $this->getHelperSet()->get('parameter')->askStore($input, $output, 'store', true);
             if ($store->getId() == \Mage_Core_Model_App::ADMIN_STORE_ID) {
                 $adminFrontName = (string) \Mage::getConfig()->getNode('admin/routers/adminhtml/args/frontName');
-                $url = rtrim($store->getBaseUrl(\Mage_Core_Model_Store::URL_TYPE_WEB), '/') . '/' .  $adminFrontName;
+                $url = rtrim($store->getBaseUrl(\Mage_Core_Model_Store::URL_TYPE_WEB), '/') . '/' . $adminFrontName;
             } else {
                 $url = $store->getBaseUrl(\Mage_Core_Model_Store::URL_TYPE_LINK) . '?___store=' . $store->getCode();
             }
             $output->writeln('Opening URL <comment>' . $url . '</comment> in browser');
-            exec(escapeshellcmd($opener . ' ' . $url));
+            Exec::run(escapeshellcmd($opener . ' ' . $url));
         }
     }
 

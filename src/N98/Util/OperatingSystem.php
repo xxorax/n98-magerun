@@ -1,9 +1,24 @@
 <?php
+/*
+ * this file is part of magerun
+ *
+ * @author Tom Klingenberg <https://github.com/ktomk>
+ */
 
 namespace N98\Util;
 
+/**
+ * Class OperatingSystem
+ *
+ * @package N98\Util
+ */
 class OperatingSystem
 {
+    /**
+     * @var int
+     */
+    const UID_ROOT = 0;
+
     /**
      * Returns true if operating system is
      * based on GNU linux.
@@ -12,7 +27,7 @@ class OperatingSystem
      */
     public static function isLinux()
     {
-        return stristr(PHP_OS, 'linux');
+        return (bool) stristr(PHP_OS, 'linux');
     }
 
     /**
@@ -34,7 +49,7 @@ class OperatingSystem
      */
     public static function isNetware()
     {
-        return stristr(PHP_OS, 'netware');
+        return (bool) stristr(PHP_OS, 'netware');
     }
 
     /**
@@ -54,10 +69,48 @@ class OperatingSystem
      */
     public static function isProgramInstalled($program)
     {
+        if (self::isWindows()) {
+            return WindowsSystem::isProgramInstalled($program);
+        }
+
         $out = null;
         $return = null;
         @exec('which ' . $program, $out, $return);
 
         return $return === 0;
+    }
+
+    /**
+     * @return string
+     */
+    public static function getHomeDir()
+    {
+        if (self::isWindows()) {
+            return getenv('USERPROFILE');
+        }
+
+        return getenv('HOME');
+    }
+
+    /**
+     * Test for Root UID on a POSIX system if posix_getuid() is available.
+     *
+     * Returns false negatives if posix_getuid() is not available.
+     *
+     * @return bool
+     */
+    public static function isRoot()
+    {
+        return function_exists('posix_getuid') && posix_getuid() === self::UID_ROOT;
+    }
+
+    /**
+     * get current working directory
+     *
+     * @return string the current working directory on success, or false on failure.
+     */
+    public static function getCwd()
+    {
+        return getcwd();
     }
 }

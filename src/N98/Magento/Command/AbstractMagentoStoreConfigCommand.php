@@ -2,12 +2,10 @@
 
 namespace N98\Magento\Command;
 
-use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Finder\Finder;
 use Symfony\Component\Console\Input\StringInput;
 use Symfony\Component\Console\Output\NullOutput;
 
@@ -95,9 +93,10 @@ abstract class AbstractMagentoStoreConfigCommand extends AbstractMagentoCommand
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
-     * @return int|void
+     * @param InputInterface $input
+     * @param OutputInterface $output
+     *
+*@return int|void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
     {
@@ -136,9 +135,11 @@ abstract class AbstractMagentoStoreConfigCommand extends AbstractMagentoCommand
             $store->getId()
         );
 
-        $comment = '<comment>' . $this->toggleComment . '</comment> '
-                 . '<info>' . (!$isFalse ? $this->falseName : $this->trueName) . '</info>'
-                 . ($runOnStoreView ? ' <comment>for store</comment> <info>' . $store->getCode() . '</info>' : '');
+        $comment =
+            '<comment>' . $this->toggleComment . '</comment> '
+            . '<info>' . (!$isFalse ? $this->falseName : $this->trueName) . '</info>'
+            . ($runOnStoreView ? ' <comment>for store</comment> <info>' . $store->getCode() . '</info>' : '');
+
         $output->writeln($comment);
 
         $this->_afterSave($store, $isFalse);
@@ -148,10 +149,10 @@ abstract class AbstractMagentoStoreConfigCommand extends AbstractMagentoCommand
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
      * @return mixed
-     * @throws \Exception
      */
     protected function _initStore($input, $output)
     {

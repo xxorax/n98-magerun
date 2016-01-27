@@ -2,17 +2,24 @@
 
 namespace N98\Magento\Command\Installer;
 
+use Composer\Composer;
+use Composer\Package\CompletePackage;
+use Exception;
+use InvalidArgumentException;
 use N98\Magento\Command\AbstractMagentoCommand;
-use N98\Util\Console\Helper\MagentoHelper;
 use N98\Util\Database as DatabaseUtils;
 use N98\Util\Filesystem;
 use N98\Util\OperatingSystem;
-use Symfony\Component\Console\Input\InputArgument;
+use N98\Util\BinaryString;
+use PDO;
+use PDOException;
+use RuntimeException;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Input\StringInput;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Finder\Finder;
+use N98\Util\Exec;
 
 /**
  * Class InstallCommand
@@ -22,6 +29,7 @@ use Symfony\Component\Finder\Finder;
  */
 class InstallCommand extends AbstractMagentoCommand
 {
+    const EXEC_STATUS_OK = 0;
     /**
      * @var array
      */
@@ -30,8 +38,16 @@ class InstallCommand extends AbstractMagentoCommand
     /**
      * @var array
      */
+    protected $_argv;
+
+    /**
+     * @var array
+     */
     protected $commandConfig;
 
+    /**
+     * @var \Closure
+     */
     protected $notEmptyCallback;
 
     protected function configure()
@@ -45,6 +61,8 @@ class InstallCommand extends AbstractMagentoCommand
             ->addOption('dbUser', null, InputOption::VALUE_OPTIONAL, 'Database user')
             ->addOption('dbPass', null, InputOption::VALUE_OPTIONAL, 'Database password')
             ->addOption('dbName', null, InputOption::VALUE_OPTIONAL, 'Database name')
+            ->addOption('dbPort', null, InputOption::VALUE_OPTIONAL, 'Database port', 3306)
+            ->addOption('dbPrefix', null, InputOption::VALUE_OPTIONAL, 'Table prefix', '')
             ->addOption('installSampleData', null, InputOption::VALUE_OPTIONAL, 'Install sample data')
             ->addOption('useDefaultConfigParams', null, InputOption::VALUE_OPTIONAL, 'Use default installation parameters defined in the yaml file')
             ->addOption('baseUrl', null, InputOption::VALUE_OPTIONAL, 'Installation base url')
@@ -56,6 +74,13 @@ class InstallCommand extends AbstractMagentoCommand
                 'If set skips download step. Used when installationFolder is already a Magento installation that has ' .
                 'to be installed on the given database.'
             )
+            ->addOption(
+                'only-download',
+                null,
+                InputOption::VALUE_NONE,
+                'Downloads (and extracts) source code'
+            )
+            ->addOption('forceUseDb', null, InputOption::VALUE_OPTIONAL, 'If --noDownload passed, force to use given database if it already exists.')
             ->setDescription('Install magento')
         ;
 
@@ -81,24 +106,33 @@ HELP;
         $this->notEmptyCallback = function($input)
         {
             if (empty($input)) {
-                throw new \InvalidArgumentException('Please enter a value');
+                throw new InvalidArgumentException('Please enter a value');
             }
             return $input;
         };
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
-     * @return int|void
+     * @return bool
+     */
+    public function isEnabled()
+    {
+        return Exec::allowed();
+    }
+
+    /**
+     * @param InputInterface $input
+     * @param OutputInterface $output
+     * @throws RuntimeException
+     * @return int|null|void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $this->commandConfig = $this->getCommandConfig();
         $this->writeSection($output, 'Magento Installation');
-        if (!extension_loaded('pdo_mysql')) {
-            throw new \RuntimeException('PHP extension pdo_mysql is required to start installation');
-        }
+
+        $this->precheckPhp();
+
         if (!$input->getOption('noDownload')) {
             $this->selectMagentoVersion($input, $output);
         }
@@ -106,7 +140,15 @@ HELP;
         $this->chooseInstallationFolder($input, $output);
 
         if (!$input->getOption('noDownload')) {
-            $this->downloadMagento($input, $output);
+            $result = $this->downloadMagento($input, $output);
+
+            if ($result === false) {
+                return 1;
+            }
+        }
+
+        if ($input->getOption('only-download')) {
+            return 0;
         }
 
         $this->createDatabase($input, $output);
@@ -121,9 +163,30 @@ HELP;
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
-     * @throws \InvalidArgumentException
+     * Check PHP environment agains minimal required settings modules
+     */
+    protected function precheckPhp()
+    {
+        $extensions = $this->commandConfig['installation']['pre-check']['php']['extensions'];
+        $missingExtensions = array();
+        foreach ($extensions as $extension) {
+            if (!extension_loaded($extension)) {
+                $missingExtensions[] = $extension;
+            }
+        }
+
+        if (count($missingExtensions) > 0) {
+            throw new RuntimeException(
+                'The following PHP extensions are required to start installation: ' . implode(',', $missingExtensions)
+            );
+        }
+    }
+
+    /**
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
+     * @throws InvalidArgumentException
      */
     protected function selectMagentoVersion(InputInterface $input, OutputInterface $output)
     {
@@ -139,7 +202,7 @@ HELP;
 
             $type = $this->getHelper('dialog')->askAndValidate($output, $question, function($typeInput) use ($commandConfig) {
                 if (!in_array($typeInput, range(1, count($commandConfig['magento-packages'])))) {
-                    throw new \InvalidArgumentException('Invalid type');
+                    throw new InvalidArgumentException('Invalid type');
                 }
 
                 return $typeInput;
@@ -149,106 +212,64 @@ HELP;
 
             if ($input->getOption('magentoVersion')) {
                 $type = $input->getOption('magentoVersion');
-            } elseif ($input->getOption('magentoVersionByName')) {
-                foreach ($this->commandConfig['magento-packages'] as $key => $package) {
-                    if ($package['name'] == $input->getOption('magentoVersionByName')) {
-                        $type = $key+1;
-                        break;
-                    }
+                if ($type !== (string) (int) $type) {
+                    $type = $this->getPackageNumberByName($type);
                 }
+            } elseif ($input->getOption('magentoVersionByName')) {
+                $type = $this->getPackageNumberByName($input->getOption('magentoVersionByName'));
             }
 
             if ($type == null) {
-                throw new \InvalidArgumentException('Unable to locate Magento version');
+                throw new InvalidArgumentException('Unable to locate Magento version');
             }
         }
 
-        $this->config['magentoVersionData'] = $this->commandConfig['magento-packages'][$type - 1];
+        $magentoPackages = $this->commandConfig['magento-packages'];
+
+        $index = $type - 1;
+        if (!isset($magentoPackages[$index])) {
+            throw new InvalidArgumentException(
+                sprintf(
+                    'Invalid Magento package number %s, must be from 1 to %d.', var_export($type, true),
+                    count($magentoPackages)
+                )
+            );
+        }
+
+        $this->config['magentoVersionData'] = $magentoPackages[$index];
     }
 
+
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param $name
+     *
+     * @return int 1 or greater as the one-based package number, null on failure to resolve the name
      */
-    protected function chooseInstallationFolder(InputInterface $input, OutputInterface $output)
+    private function getPackageNumberByName($name)
     {
-        $validateInstallationFolder = function($folderName) use ($input) {
-
-            $folderName = rtrim(trim($folderName, ' '), '/');
-            if (substr($folderName, 0, 1) == '.') {
-                $cwd = \getcwd() ;
-                if (empty($cwd) && isset($_SERVER['PWD'])) {
-                    $cwd = $_SERVER['PWD'];
-                }
-                $folderName = $cwd . substr($folderName, 1);
-            }
-
-            if (empty($folderName)) {
-                throw new \InvalidArgumentException('Installation folder cannot be empty');
-            }
-
-            if (!is_dir($folderName)) {
-                if (!@mkdir($folderName,0777, true)) {
-                    throw new \InvalidArgumentException('Cannot create folder.');
-                }
-
-                return $folderName;
-            }
-
-            if ($input->getOption('noDownload')) {
-                /** @var MagentoHelper $magentoHelper */
-                $magentoHelper = new MagentoHelper();
-                $magentoHelper->detect($folderName);
-                if ($magentoHelper->getRootFolder() !== $folderName) {
-                    throw new \InvalidArgumentException(
-                        sprintf(
-                            'Folder %s is not a Magento working copy.',
-                            $folderName
-                        )
-                    );
-                }
-
-                $localXml = $folderName . '/app/etc/local.xml';
-                if (file_exists($localXml)) {
-                    throw new \InvalidArgumentException(
-                        sprintf(
-                            'Magento working copy in %s seems already installed. Please remove %s and retry.',
-                            $folderName,
-                            $localXml
-                        )
-                    );
-                }
-            }
-
-            return $folderName;
-        };
-
-        if (($installationFolder = $input->getOption('installationFolder')) == null) {
-            $defaultFolder = './magento';
-            $question[] = "<question>Enter installation folder:</question> [<comment>" . $defaultFolder . "</comment>]";
-
-            $installationFolder = $this->getHelper('dialog')->askAndValidate($output, $question, $validateInstallationFolder, false, $defaultFolder);
-
-        } else {
-            // @Todo improve validation and bring it to 1 single function
-            $installationFolder = $validateInstallationFolder($installationFolder);
-
+        // directly filter integer strings
+        if ($name === (string) (int) $name) {
+            return (int) $name;
         }
 
-        $this->config['installationFolder'] = realpath($installationFolder);
-        \chdir($this->config['installationFolder']);
-    }
+        $magentoPackages = $this->commandConfig['magento-packages'];
 
-    protected function test($folderName) {
+        foreach ($magentoPackages as $key => $package) {
+            if ($package['name'] === $name) {
+                return $key + 1;
+            }
+        }
 
+        return null;
     }
 
     /**
-     * @param array $magentoVersionData
-     * @param string $installationFolder
+     * @param InputInterface $input
+     * @param OutputInterface $output
      * @return bool
      */
-    public function downloadMagento(InputInterface $input, OutputInterface $output) {
+    public function downloadMagento(InputInterface $input, OutputInterface $output)
+    {
         try {
             $package = $this->createComposerPackageByConfig($this->config['magentoVersionData']);
             $this->config['magentoPackage'] = $package;
@@ -258,27 +279,66 @@ HELP;
                 return false;
             }
 
+            $composer = $this->getComposer($input, $output);
+            $targetFolder = $this->getTargetFolderByType($composer, $package, $this->config['installationFolder']);
             $this->config['magentoPackage'] = $this->downloadByComposerConfig(
                 $input,
                 $output,
                 $package,
-                $this->config['installationFolder'] . '/_n98_magerun_download',
+                $targetFolder,
                 true
             );
 
-            $filesystem = new \Composer\Util\Filesystem();
-            $filesystem->copyThenRemove($this->config['installationFolder'] . '/_n98_magerun_download', $this->config['installationFolder']);
+            if ($this->isSourceTypeRepository($package->getSourceType())) {
+                $filesystem = new \N98\Util\Filesystem;
+                $filesystem->recursiveCopy($targetFolder, $this->config['installationFolder'], array('.git', '.hg'));
+            } else {
+                $filesystem = new \Composer\Util\Filesystem();
+                $filesystem->copyThenRemove(
+                    $this->config['installationFolder'] . '/_n98_magerun_download', $this->config['installationFolder']
+                );
+            }
 
             if (version_compare(PHP_VERSION, '5.4.0') >= 0) {
                 // Patch installer
                 $this->patchMagentoInstallerForPHP54($this->config['installationFolder']);
             }
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $output->writeln('<error>' . $e->getMessage() . '</error>');
             return false;
         }
 
         return true;
+    }
+
+    /**
+     * construct a folder to where magerun will download the source to, cache git/hg repositories under COMPOSER_HOME
+     *
+     * @param Composer $composer
+     * @param CompletePackage $package
+     * @param $installationFolder
+     *
+     * @return string
+     */
+    protected function getTargetFolderByType(Composer $composer, CompletePackage $package, $installationFolder)
+    {
+        $type = $package->getSourceType();
+        if ($this->isSourceTypeRepository($type)) {
+            $targetPath = sprintf(
+                '%s/%s/%s/%s',
+                $composer->getConfig()->get('cache-dir'),
+                '_n98_magerun_download',
+                $type,
+                preg_replace('{[^a-z0-9.]}i', '-', $package->getSourceUrl())
+            );
+        } else {
+            $targetPath = sprintf(
+                '%s/%s',
+                $installationFolder,
+                '_n98_magerun_download'
+            );
+        }
+        return $targetPath;
     }
 
     /**
@@ -296,52 +356,93 @@ HELP;
     }
 
     /**
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
+     * @throws InvalidArgumentException
      */
     protected function createDatabase(InputInterface $input, OutputInterface $output)
     {
-        $dialog = $this->getHelperSet()->get('dialog');
+        $dbOptions = array('--dbHost', '--dbUser', '--dbPass', '--dbName');
+        $dbOptionsFound = 0;
+        foreach ($dbOptions as $dbOption) {
+            foreach ($this->getCliArguments() as $definedCliOption) {
+                if (BinaryString::startsWith($definedCliOption, $dbOption)) {
+                    $dbOptionsFound++;
+                }
+            }
+        }
 
-        /**
-         * Database
-         */
-        do {
-            $this->config['db_host'] = $input->getOption('dbHost') !== null ? $input->getOption('dbHost') : $dialog->askAndValidate($output, '<question>Please enter the database host:</question> <comment>[localhost]</comment>: ', $this->notEmptyCallback, false, 'localhost');
-            $this->config['db_user'] = $input->getOption('dbUser') !== null ? $input->getOption('dbUser') : $dialog->askAndValidate($output, '<question>Please enter the database username:</question> ', $this->notEmptyCallback);
-            $this->config['db_pass'] = $input->hasParameterOption('--dbPass=' . $input->getOption('dbPass')) ? $input->getOption('dbPass') : $dialog->ask($output, '<question>Please enter the database password:</question> ');
-            $this->config['db_name'] = $input->getOption('dbName') !== null ? $input->getOption('dbName') : $dialog->askAndValidate($output, '<question>Please enter the database name:</question> ', $this->notEmptyCallback);
+        $hasAllOptions = $dbOptionsFound == 4;
+
+        // if all database options were passed in at cmd line
+        if ($hasAllOptions) {
+            $this->config['db_host'] = $input->getOption('dbHost');
+            $this->config['db_user'] = $input->getOption('dbUser');
+            $this->config['db_pass'] = $input->getOption('dbPass');
+            $this->config['db_name'] = $input->getOption('dbName');
+            $this->config['db_port'] = $input->getOption('dbPort');
+            $this->config['db_prefix'] = $input->getOption('dbPrefix');
             $db = $this->validateDatabaseSettings($output, $input);
-        } while ($db === false);
+
+            if ($db === false) {
+                throw new InvalidArgumentException("Database configuration is invalid");
+            }
+
+        } else {
+            $dialog = $this->getHelperSet()->get('dialog');
+            do {
+                $dbHostDefault = $input->getOption('dbHost') ? $input->getOption('dbHost') : 'localhost';
+                $this->config['db_host'] = $dialog->askAndValidate($output, '<question>Please enter the database host</question> <comment>[' . $dbHostDefault . ']</comment>: ', $this->notEmptyCallback, false, $dbHostDefault);
+
+                $dbUserDefault = $input->getOption('dbUser') ? $input->getOption('dbUser') : 'root';
+                $this->config['db_user'] = $dialog->askAndValidate($output, '<question>Please enter the database username</question> <comment>[' . $dbUserDefault . ']</comment>: ', $this->notEmptyCallback, false, $dbUserDefault);
+
+                $dbPassDefault = $input->getOption('dbPass') ? $input->getOption('dbPass') : '';
+                $this->config['db_pass'] = $dialog->ask($output, '<question>Please enter the database password</question> <comment>[' . $dbPassDefault . ']</comment>: ', $dbPassDefault);
+
+                $dbNameDefault = $input->getOption('dbName') ? $input->getOption('dbName') : 'magento';
+                $this->config['db_name'] = $dialog->askAndValidate($output, '<question>Please enter the database name</question> <comment>[' . $dbNameDefault . ']</comment>: ', $this->notEmptyCallback, false, $dbNameDefault);
+
+                $dbPortDefault = $input->getOption('dbPort') ? $input->getOption('dbPort') : 3306;
+                $this->config['db_port'] = $dialog->askAndValidate($output, '<question>Please enter the database port </question> <comment>[' . $dbPortDefault . ']</comment>: ', $this->notEmptyCallback, false, $dbPortDefault);
+
+                $dbPrefixDefault = $input->getOption('dbPrefix') ? $input->getOption('dbPrefix') : '';
+                $this->config['db_prefix'] = $dialog->ask($output, '<question>Please enter the table prefix</question> <comment>[' . $dbPrefixDefault . ']</comment>:', $dbPrefixDefault);
+                $db = $this->validateDatabaseSettings($output, $input);
+            } while ($db === false);
+        }
 
         $this->config['db'] = $db;
     }
 
     /**
      * @param OutputInterface $output
-     * @param string $dbHost
-     * @param string $dbUser
-     * @param string $dbPass
-     * @param string $dbName
+     * @param InputInterface  $input
+     *
      * @return bool|PDO
      */
     protected function validateDatabaseSettings(OutputInterface $output, InputInterface $input)
     {
         try {
-            $db = new \PDO('mysql:host='. $this->config['db_host'], $this->config['db_user'], $this->config['db_pass']);
+            $dsn = sprintf("mysql:host=%s;port=%s", $this->config['db_host'], $this->config['db_port']);
+            $db = new PDO($dsn, $this->config['db_user'], $this->config['db_pass']);
             if (!$db->query('USE ' . $this->config['db_name'])) {
                 $db->query("CREATE DATABASE `" . $this->config['db_name'] . "`");
                 $output->writeln('<info>Created database ' . $this->config['db_name'] . '</info>');
                 $db->query('USE ' . $this->config['db_name']);
+
                 return $db;
             }
 
-            if ($input->getOption('noDownload')) {
+            if ($input->getOption('noDownload') && !$input->getOption('forceUseDb')) {
                 $output->writeln("<error>Database {$this->config['db_name']} already exists.</error>");
+
                 return false;
             }
 
             return $db;
-        } catch (\PDOException $e) {
+        } catch (PDOException $e) {
             $output->writeln('<error>' . $e->getMessage() . '</error>');
         }
 
@@ -349,13 +450,13 @@ HELP;
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param InputInterface $input
+     * @param OutputInterface $output
      */
     protected function installSampleData(InputInterface $input, OutputInterface $output)
     {
         $magentoPackage = $this->config['magentoPackage']; /* @var $magentoPackage \Composer\Package\MemoryPackage */
-        $extra  = $magentoPackage->getExtra();
+        $extra = $magentoPackage->getExtra();
         if (!isset($extra['sample-data'])) {
             return;
         }
@@ -397,7 +498,8 @@ HELP;
 
                     // Install sample data
                     $sampleDataSqlFile = glob($this->config['installationFolder'] . '/_temp_demo_data/magento_*sample_data*sql');
-                    $db = $this->config['db']; /* @var $db \PDO */
+                    $db = $this->config['db'];
+                    /* @var $db PDO */
                     if (isset($sampleDataSqlFile[0])) {
                         if (OperatingSystem::isProgramInstalled('mysql')) {
                             $exec = 'mysql '
@@ -405,13 +507,14 @@ HELP;
                                 . ' '
                                 . '-u' . escapeshellarg(strval($this->config['db_user']))
                                 . ' '
+                                . ($this->config['db_port'] != '3306' ? '-P' . escapeshellarg($this->config['db_port']) . ' ' : '')
                                 . (!strval($this->config['db_pass'] == '') ? '-p' . escapeshellarg($this->config['db_pass']) . ' ' : '')
                                 . strval($this->config['db_name'])
                                 . ' < '
                                 . escapeshellarg($sampleDataSqlFile[0]);
                             $output->writeln('<info>Importing <comment>' . $sampleDataSqlFile[0] . '</comment> with mysql cli client</info>');
-                            exec($exec);
-                            @unlink($sampleDataSqlFile);
+                            Exec::run($exec);
+                            @unlink($sampleDataSqlFile[0]);
                         } else {
                             $output->writeln('<info>Importing <comment>' . $sampleDataSqlFile[0] . '</comment> with PDO driver</info>');
                             // Fallback -> Try to install dump file by PDO driver
@@ -431,15 +534,16 @@ HELP;
     protected function _fixComposerExtractionBug()
     {
         $filesystem = new Filesystem();
-
-        $mediaFolder = $this->config['installationFolder'] . '/media';
-        $wrongFolder = $this->config['installationFolder'] . '/_temp_demo_data/media';
-        if (is_dir($wrongFolder)) {
-            $filesystem->recursiveCopy(
-                $wrongFolder,
-                $mediaFolder
-            );
-            $filesystem->recursiveRemoveDirectory($wrongFolder);
+        foreach (array('/_temp_demo_data/media' => '/media', '/_temp_demo_data/skin' => '/skin') as $wrong => $right) {
+            $wrongFolder = $this->config['installationFolder'] . $wrong;
+            $rightFolder = $this->config['installationFolder'] . $right;
+            if (is_dir($wrongFolder)) {
+                $filesystem->recursiveCopy(
+                    $wrongFolder,
+                    $rightFolder
+                );
+                $filesystem->recursiveRemoveDirectory($wrongFolder);
+            }
         }
     }
 
@@ -459,9 +563,12 @@ HELP;
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
      * @return array
+     * @throws InvalidArgumentException parameter mismatch (e.g. base-url components like hostname)
+     * @throws RuntimeException
      */
     protected function installMagento(InputInterface $input, OutputInterface $output)
     {
@@ -471,7 +578,7 @@ HELP;
         $defaults = $this->commandConfig['installation']['defaults'];
 
         $useDefaultConfigParams = $this->_parseBoolOption($input->getOption('useDefaultConfigParams'));
-        
+
         $sessionSave = $useDefaultConfigParams ? $defaults['session_save'] : $dialog->ask(
             $output,
             '<question>Please enter the session save:</question> <comment>[' . $defaults['session_save'] . ']</comment>: ',
@@ -552,10 +659,10 @@ HELP;
 
         $validateBaseUrl = function($input) {
             if (!preg_match('|^http(s)?://[a-z0-9-]+(.[a-z0-9-]+)*(:[0-9]+)?(/.*)?$|i', $input)) {
-                throw new \InvalidArgumentException('Please enter a valid URL');
+                throw new InvalidArgumentException('Please enter a valid URL');
             }
-            if (strstr($input, 'localhost')) {
-                throw new \InvalidArgumentException('localhost cause problems! Please use 127.0.0.1 or another hostname');
+            if (parse_url($input, \PHP_URL_HOST) == 'localhost') {
+                throw new InvalidArgumentException('localhost cause problems! Please use 127.0.0.1 or another hostname');
             }
             return $input;
         };
@@ -568,14 +675,35 @@ HELP;
         );
         $baseUrl = rtrim($baseUrl, '/') . '/'; // normalize baseUrl
 
+        /**
+         * Correct session save (common mistake)
+         */
+        if ($sessionSave == 'file') {
+            $sessionSave = 'files';
+        }
+
+        /**
+         * Try to create session folder
+         */
+        $defaultSessionFolder = $this->config['installationFolder'] . DIRECTORY_SEPARATOR . 'var/session';
+        if ($sessionSave == 'files' && !is_dir($defaultSessionFolder)) {
+            @mkdir($defaultSessionFolder);
+        }
+
+        $dbHost = $this->config['db_host'];
+        if ($this->config['db_port'] != 3306) {
+            $dbHost .= ':' . $this->config['db_port'];
+        }
+
         $argv = array(
             'license_agreement_accepted' => 'yes',
             'locale'                     => $locale,
             'timezone'                   => $timezone,
-            'db_host'                    => $this->config['db_host'],
+            'db_host'                    => $dbHost,
             'db_name'                    => $this->config['db_name'],
             'db_user'                    => $this->config['db_user'],
             'db_pass'                    => $this->config['db_pass'],
+            'db_prefix'                  => $this->config['db_prefix'],
             'url'                        => $baseUrl,
             'use_rewrites'               => 'yes',
             'use_secure'                 => 'no',
@@ -592,6 +720,18 @@ HELP;
             'default_currency'           => $currency,
             'skip_url_validation'        => 'yes',
         );
+        if ($useDefaultConfigParams) {
+            if (strlen($defaults['encryption_key']) > 0) {
+                $argv['encryption_key'] = $defaults['encryption_key'];
+            }
+            if (strlen($defaults['use_secure']) > 0) {
+                $argv['use_secure'] = $defaults['use_secure'];
+                $argv['secure_base_url'] = str_replace('http://', 'https://', $baseUrl);
+            }
+            if (strlen($defaults['use_rewrites']) > 0) {
+                $argv['use_rewrites'] = $defaults['use_rewrites'];
+            }
+        }
         $installArgs = '';
         foreach ($argv as $argName => $argValue) {
             $installArgs .= '--' . $argName . ' ' . escapeshellarg($argValue) . ' ';
@@ -600,12 +740,20 @@ HELP;
         $output->writeln('<info>Start installation process.</info>');
 
         if (OperatingSystem::isWindows()) {
-            $installCommand = 'php ' . $this->getInstallScriptPath() . ' ' . $installArgs;
+            $installCommand = 'php -f ' . escapeshellarg($this->getInstallScriptPath()) . ' -- ' . $installArgs;
         } else {
-            $installCommand = '/usr/bin/env php ' . $this->getInstallScriptPath() . ' ' . $installArgs;
+            $installCommand = '/usr/bin/env php -f ' . escapeshellarg($this->getInstallScriptPath()) . ' -- ' . $installArgs;
         }
         $output->writeln('<comment>' . $installCommand . '</comment>');
-        exec($installCommand);
+        Exec::run($installCommand, $installationOutput, $returnStatus);
+        if ($returnStatus !== self::EXEC_STATUS_OK) {
+            $this->getApplication()->setAutoExit(true);
+            throw new RuntimeException('Installation failed.' . $installationOutput, 1);
+        } else {
+            $output->writeln('<info>Successfully installed Magento</info>');
+            $encryptionKey = trim(substr($installationOutput, strpos($installationOutput, ':') + 1));
+            $output->writeln('<comment>Encryption Key:</comment> <info>' . $encryptionKey . '</info>');
+        }
 
         $dialog = $this->getHelperSet()->get('dialog');
 
@@ -631,6 +779,7 @@ HELP;
         }
 
         \chdir($this->config['installationFolder']);
+        $this->getApplication()->reinit();
         $output->writeln('<info>Reindex all after installation</info>');
         $this->getApplication()->run(new StringInput('index:reindex:all'), $output);
         $this->getApplication()->run(new StringInput('sys:check'), $output);
@@ -665,7 +814,7 @@ HELP;
     }
 
     /**
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param OutputInterface $output
      */
     protected function setDirectoryPermissions($output)
     {
@@ -695,8 +844,28 @@ HELP;
             foreach ($finder as $dir) {
                 @chmod($dir->getRealpath(), 0777);
             }
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $output->writeln('<error>' . $e->getMessage() . '</error>');
         }
+    }
+
+    /**
+     * @return array
+     */
+    public function getCliArguments()
+    {
+        if ($this->_argv === null) {
+            $this->_argv = $_SERVER['argv'];
+        }
+
+        return $this->_argv;
+    }
+
+    /**
+     * @param array $args
+     */
+    public function setCliArguments($args)
+    {
+        $this->_argv = $args;
     }
 }

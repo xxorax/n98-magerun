@@ -5,12 +5,11 @@ namespace N98\Magento\Command;
 use Composer\Downloader\FilesystemException;
 use Composer\IO\ConsoleIO;
 use Composer\Util\RemoteFilesystem;
+use Exception;
 use N98\Magento\Command\AbstractMagentoCommand;
-use N98\Util\OperatingSystem;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\EventDispatcher\EventDispatcher;
 
 /**
  * @codeCoverageIgnore
@@ -45,10 +44,16 @@ EOT
         return $this->getApplication()->isPharMode();
     }
 
+    /**
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
+     * @throws FilesystemException
+     */
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $localFilename = realpath($_SERVER['argv'][0]) ?: $_SERVER['argv'][0];
-        $tempFilename = dirname($localFilename) . '/' . basename($localFilename, '.phar').'-temp.phar';
+        $tempFilename = dirname($localFilename) . '/' . basename($localFilename, '.phar') . '-temp.phar';
 
         // check for permissions in local filesystem before start connection process
         if (!is_writable($tempDirectory = dirname($tempFilename))) {
@@ -64,14 +69,14 @@ EOT
 
         $loadUnstable = $input->getOption('unstable');
         if ($loadUnstable) {
-            $versionTxtUrl = 'https://raw.github.com/netz98/n98-magerun/develop/version.txt';
-            $remoteFilename = 'https://raw.github.com/netz98/n98-magerun/develop/n98-magerun.phar';
+            $versionTxtUrl = 'https://raw.githubusercontent.com/netz98/n98-magerun/develop/version.txt';
+            $remoteFilename = 'https://files.magerun.net/n98-magerun-dev.phar';
         } else {
-            $versionTxtUrl = 'https://raw.github.com/netz98/n98-magerun/master/version.txt';
-            $remoteFilename = 'https://raw.github.com/netz98/n98-magerun/master/n98-magerun.phar';
+            $versionTxtUrl = 'https://raw.githubusercontent.com/netz98/n98-magerun/master/version.txt';
+            $remoteFilename = 'https://files.magerun.net/n98-magerun-latest.phar';
         }
 
-        $latest = trim($rfs->getContents('raw.github.com', $versionTxtUrl, false));
+        $latest = trim($rfs->getContents('raw.githubusercontent.com', $versionTxtUrl, false));
 
         if ($this->getApplication()->getVersion() !== $latest || $loadUnstable) {
             $output->writeln(sprintf("Updating to version <info>%s</info>.", $latest));
@@ -95,18 +100,42 @@ EOT
                 @rename($tempFilename, $localFilename);
                 $output->writeln('<info>Successfully updated n98-magerun</info>');
 
-                $changeLogContent = $rfs->getContents('raw.github.com', 'https://raw.github.com/netz98/n98-magerun/master/changes.txt', false);
+                if ($loadUnstable) {
+                    $changeLogContent = $rfs->getContents(
+                        'raw.github.com',
+                        'https://raw.github.com/netz98/n98-magerun/develop/changes.txt',
+                        false
+                    );
+                } else {
+                    $changeLogContent = $rfs->getContents(
+                        'raw.github.com',
+                        'https://raw.github.com/netz98/n98-magerun/master/changes.txt',
+                        false
+                    );
+                }
+
                 if ($changeLogContent) {
                     $output->writeln($changeLogContent);
                 }
 
+                if ($loadUnstable) {
+                    $unstableFooterMessage = <<<UNSTABLE_FOOTER
+<comment>
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! DEVELOPMENT VERSION. DO NOT USE IN PRODUCTION !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+</comment>
+UNSTABLE_FOOTER;
+                    $output->writeln($unstableFooterMessage);
+                }
+
                 $this->_exit();
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 @unlink($tempFilename);
                 if (!$e instanceof \UnexpectedValueException && !$e instanceof \PharException) {
                     throw $e;
                 }
-                $output->writeln('<error>The download is corrupted ('.$e->getMessage().').</error>');
+                $output->writeln('<error>The download is corrupted (' . $e->getMessage() . ').</error>');
                 $output->writeln('<error>Please re-run the self-update command to try again.</error>');
             }
         } else {

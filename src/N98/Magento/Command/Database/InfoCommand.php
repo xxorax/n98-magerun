@@ -2,10 +2,12 @@
 
 namespace N98\Magento\Command\Database;
 
+use InvalidArgumentException;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use N98\Util\Console\Helper\Table\Renderer\RendererFactory;
 
 class InfoCommand extends AbstractDatabaseCommand
 {
@@ -13,8 +15,15 @@ class InfoCommand extends AbstractDatabaseCommand
     {
         $this
             ->setName('db:info')
+            ->addArgument('setting', InputArgument::OPTIONAL, 'Only output value of named setting')
             ->addDeprecatedAlias('database:info', 'Please use db:info')
             ->setDescription('Dumps database informations')
+            ->addOption(
+                'format',
+                null,
+                InputOption::VALUE_OPTIONAL,
+                'Output Format. One of [' . implode(',', RendererFactory::getFormats()) . ']'
+            )
         ;
 
         $help = <<<HELP
@@ -26,36 +35,76 @@ HELP;
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
-     * @return int|void
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
+     * @throws InvalidArgumentException
+     * @return void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $this->detectDbSettings($output);
+
+        $settings = array();
         foreach ($this->dbSettings as $key => $value) {
-            $output->writeln(str_pad($key, 25, ' ') . ': ' . $value);
+            $settings[$key] = (string) $value;
         }
 
-        $pdoConnectionString = sprintf(
-            'mysql:host=%s;dbname=%s',
-            $this->dbSettings['host'],
-            $this->dbSettings['dbname']
-        );
-        $output->writeln(str_pad('PDO-Connection-String', 25, ' ') . ': ' . $pdoConnectionString);
+        $isSocketConnect = $this->dbSettings->isSocketConnect();
 
-        $jdbcConnectionString = sprintf(
-            'jdbc:mysql://%s/%s?username=%s&password=%s',
-            $this->dbSettings['host'],
-            $this->dbSettings['dbname'],
-            $this->dbSettings['username'],
-            $this->dbSettings['password']
-        );
-        $output->writeln(str_pad('JDBC-Connection-String', 25, ' ') . ': ' . $jdbcConnectionString);
+        // note: there is no need to specify the default port neither for PDO, nor JDBC nor CLI.
+        $portOrDefault = isset($this->dbSettings['port']) ? $this->dbSettings['port'] : 3306;
+
+        $pdoConnectionString = '';
+        if ($isSocketConnect) {
+            $pdoConnectionString = sprintf(
+                'mysql:unix_socket=%s;dbname=%s',
+                $this->dbSettings['unix_socket'],
+                $this->dbSettings['dbname']
+            );
+        } else {
+            $pdoConnectionString = sprintf(
+                'mysql:host=%s;port=%s;dbname=%s',
+                $this->dbSettings['host'],
+                $portOrDefault,
+                $this->dbSettings['dbname']
+            );
+        }
+        $settings['PDO-Connection-String'] = $pdoConnectionString;
+
+        $jdbcConnectionString = '';
+        if ($isSocketConnect) {
+            // isn't supported according to this post: http://stackoverflow.com/a/18493673/145829
+            $jdbcConnectionString = 'Connecting using JDBC through a unix socket isn\'t supported!';
+        } else {
+            $jdbcConnectionString = sprintf(
+                'jdbc:mysql://%s:%s/%s?username=%s&password=%s',
+                $this->dbSettings['host'],
+                $portOrDefault,
+                $this->dbSettings['dbname'],
+                $this->dbSettings['username'],
+                $this->dbSettings['password']
+            );
+        }
+        $settings['JDBC-Connection-String'] = $jdbcConnectionString;
 
         $mysqlCliString = 'mysql ' . $this->getHelper('database')->getMysqlClientToolConnectionString();
+        $settings['MySQL-Cli-String'] = $mysqlCliString;
 
-        $output->writeln(str_pad('MySQL-Cli-String', 25, ' ') . ': ' . $mysqlCliString);
+        $rows = array();
+        foreach ($settings as $settingName => $settingValue) {
+            $rows[] = array($settingName, $settingValue);
+        }
+
+        if (($settingArgument = $input->getArgument('setting')) !== null) {
+            if (!isset($settings[$settingArgument])) {
+                throw new InvalidArgumentException('Unknown setting: ' . $settingArgument);
+            }
+            $output->writeln((string) $settings[$settingArgument]);
+        } else {
+            $this->getHelper('table')
+                ->setHeaders(array('Name', 'Value'))
+                ->renderByFormat($output, $rows, $input->getOption('format'));
+        }
     }
-
 }

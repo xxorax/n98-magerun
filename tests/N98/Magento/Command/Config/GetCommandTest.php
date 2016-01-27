@@ -33,7 +33,7 @@ class GetCommandTest extends TestCase
                  'path'    => 'n98_magerun/foo/bar',
             )
         );
-        $this->assertContains('| n98_magerun/foo/bar | default  |    0     | 1234  |', $commandTester->getDisplay());
+        $this->assertContains('| n98_magerun/foo/bar | default | 0        | 1234  |', $commandTester->getDisplay());
 
         $commandTester->execute(
             array(
@@ -55,9 +55,47 @@ class GetCommandTest extends TestCase
             )
         );
         $this->assertContains(
-            "config:set n98_magerun/foo/bar --scope-id=0 --scope=default '1234'",
+            "config:set n98_magerun/foo/bar --scope-id=0 --scope=default " . escapeshellarg(1234),
             $commandTester->getDisplay()
         );
+
+        /**
+         * Dump CSV
+         */
+        $commandTester->execute(
+            array(
+                'command'  => $getCommand->getName(),
+                'path'     => 'n98_magerun/foo/bar',
+                '--format' => 'csv',
+            )
+        );
+        $this->assertContains('Path,Scope,Scope-ID,Value', $commandTester->getDisplay());
+        $this->assertContains('n98_magerun/foo/bar,default,0,1234', $commandTester->getDisplay());
+
+        /**
+         * Dump XML
+         */
+        $commandTester->execute(
+            array(
+                'command'  => $getCommand->getName(),
+                'path'     => 'n98_magerun/foo/bar',
+                '--format' => 'xml',
+            )
+        );
+        $this->assertContains('<table>', $commandTester->getDisplay());
+        $this->assertContains('<Value>1234</Value>', $commandTester->getDisplay());
+
+        /**
+         * Dump XML
+         */
+        $commandTester->execute(
+            array(
+                'command'  => $getCommand->getName(),
+                'path'     => 'n98_magerun/foo/bar',
+                '--format' => 'json',
+            )
+        );
+        $this->assertRegExp('/"Value":\s*"1234"/', $commandTester->getDisplay());
     }
 
 }

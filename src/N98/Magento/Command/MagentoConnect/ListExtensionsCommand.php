@@ -5,6 +5,8 @@ namespace N98\Magento\Command\MagentoConnect;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Input\InputOption;
+use N98\Util\Console\Helper\Table\Renderer\RendererFactory;
 
 class ListExtensionsCommand extends AbstractConnectCommand
 {
@@ -15,6 +17,12 @@ class ListExtensionsCommand extends AbstractConnectCommand
             ->setAliases(array('extension:search'))
             ->addArgument('search', InputArgument::OPTIONAL, 'Search string')
             ->setDescription('List magento connection extensions')
+            ->addOption(
+                'format',
+                null,
+                InputOption::VALUE_OPTIONAL,
+                'Output Format. One of [' . implode(',', RendererFactory::getFormats()) . ']'
+            )
         ;
 
         $help = <<<HELP
@@ -25,8 +33,9 @@ HELP;
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
      * @return int|void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
@@ -47,6 +56,20 @@ HELP;
                             $matches[2],
                             $matches[3],
                         );
+                        if (isset($matches[4]) && isset($matches[5])) {
+                            $table[] = array(
+                                $matches[1],
+                                $matches[4],
+                                $matches[5],
+                            );
+                        }
+                        if (isset($matches[6]) && isset($matches[7])) {
+                            $table[] = array(
+                                $matches[1],
+                                $matches[6],
+                                $matches[7],
+                            );
+                        }
                     }
                 }
             }
@@ -54,8 +77,7 @@ HELP;
             if (count($table) > 0) {
                 $this->getHelper('table')
                     ->setHeaders(array('Package', 'Version', 'Stability'))
-                    ->setRows($table)
-                    ->render($output);
+                    ->renderByFormat($output, $table, $input->getOption('format'));
             }
         } else {
             $output->writeln('<error>' . $extensions . '</error>');

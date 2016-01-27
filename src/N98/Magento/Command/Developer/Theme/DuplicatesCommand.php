@@ -34,8 +34,9 @@ HELP;
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
      * @return int|void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
@@ -65,7 +66,7 @@ HELP;
                 $this->logJUnit($input, $duplicates, $input->getOption('log-junit'), microtime($time) - $time);
             } else {
                 if (count($duplicates) === 0) {
-                    $output->writeln('<info>No duplicates was found</info>');
+                    $output->writeln('<info>No duplicates were found</info>');
                 } else {
                     $output->writeln($duplicates);
                 }
@@ -100,7 +101,7 @@ HELP;
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
+     * @param InputInterface $input
      * @param array          $duplicates
      * @param string         $filename
      * @param float          $duration

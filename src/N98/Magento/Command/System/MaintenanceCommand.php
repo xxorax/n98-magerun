@@ -3,7 +3,6 @@
 namespace N98\Magento\Command\System;
 
 use N98\Magento\Command\AbstractMagentoCommand;
-use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -21,8 +20,9 @@ class MaintenanceCommand extends AbstractMagentoCommand
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
      * @return int|void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
@@ -44,12 +44,14 @@ class MaintenanceCommand extends AbstractMagentoCommand
     }
 
     /**
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param OutputInterface $output
      * @param $flagFile
      */
     protected function _switchOn(OutputInterface $output, $flagFile)
     {
-        touch($flagFile);
+        if (!touch($flagFile)) {
+            throw new \RuntimeException('maintenance.flag file is not writable.');
+        }
         $output->writeln('Maintenance mode <info>on</info>');
     }
 
@@ -60,7 +62,9 @@ class MaintenanceCommand extends AbstractMagentoCommand
     protected function _switchOff($output, $flagFile)
     {
         if (file_exists($flagFile)) {
-            unlink($flagFile);
+            if (!unlink($flagFile)) {
+                throw new \RuntimeException('maintenance.flag file is not writable.');
+            }
         }
         $output->writeln('Maintenance mode <info>off</info>');
     }

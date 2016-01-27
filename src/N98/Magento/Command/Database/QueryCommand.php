@@ -6,6 +6,7 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use N98\Util\Exec;
 
 class QueryCommand extends AbstractDatabaseCommand
 {
@@ -30,15 +31,23 @@ mysql cli tool will be returned.
 HELP;
         $this->setHelp($help);
     }
-    
+
+    /**
+     * @return bool
+     */
+    public function isEnabled()
+    {
+        return Exec::allowed();
+    }
+
     /**
      * Returns the query string with escaped ' characters so it can be used
      * within the mysql -e argument.
-     * 
+     *
      * The -e argument is enclosed by single quotes. As you can't escape
      * the single quote within the single quote, you have to end the quote,
      * then escape the single quote character and reopen the quote.
-     * 
+     *
      * @param string $query
      * @return string
      */
@@ -46,33 +55,31 @@ HELP;
     {
         return str_replace("'", "'\''", $query);
     }
-    
+
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
      * @return int|void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $this->detectDbSettings($output);
-        
-        if (($query = $input->getArgument('query')) === null) {
-            $dialog = $this->getHelperSet()->get('dialog');
-            $query = $dialog->ask($output, '<question>SQL Query:</question>');
-        }
-        
-        $query = $this->getEscapedSql($query);        
-        
-        $exec = 'mysql ' . $this->getMysqlClientToolConnectionString() . " -e '" . $query . "'";
+
+        $query = $this->getOrAskForArgument('query', $input, $output, 'SQL Query');
+
+        /** @var $helper \N98\Util\Console\Helper\DatabaseHelper */
+        $helper = $this->getHelper('database');
+        $exec   = sprintf('mysql %s -e %s', $helper->getMysqlClientToolConnectionString(), escapeshellarg($query));
 
         if ($input->getOption('only-command')) {
             $output->writeln($exec);
         } else {
-            exec($exec, $commandOutput, $returnValue);
+            Exec::run($exec, $commandOutput, $returnValue);
             $output->writeln($commandOutput);
             if ($returnValue > 0) {
-                $output->writeln('<error>' . implode(PHP_EOL, $commandOutput) . '</error>');
+                $output->writeln('<error>' . $commandOutput . '</error>');
             }
-        }        
+        }
     }
 }

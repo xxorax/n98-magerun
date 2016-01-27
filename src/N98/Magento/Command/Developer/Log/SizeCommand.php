@@ -2,26 +2,29 @@
 
 namespace N98\Magento\Command\Developer\Log;
 
-use N98\Magento\Command\AbstractMagentoCommand;
+use RuntimeException;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
-use Symfony\Component\Console\Input\StringInput;
 use Symfony\Component\Console\Output\OutputInterface;
 
 class SizeCommand extends AbstractLogCommand
 {
     protected function configure()
     {
-        $this->setName('dev:log:size')
-             ->addArgument('log_filename', InputArgument::OPTIONAL, 'Name of log file.')
-             ->setDescription('Get size of log file');
+        $this
+            ->setName('dev:log:size')
+            ->addArgument('log_filename', InputArgument::OPTIONAL, 'Name of log file.')
+            ->addOption('human', '', InputOption::VALUE_NONE, 'Human readable output')
+            ->setDescription('Get size of log file');
     }
-    
+
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
-     * @return int|void
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
+     * @throws RuntimeException
+     * @return void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
     {
@@ -39,13 +42,17 @@ class SizeCommand extends AbstractLogCommand
                 $size = @filesize($path);
 
                 if ($size === false) {
-                    throw new \RuntimeException('Couldn\t detect filesize.');
+                    throw new RuntimeException('Couldn\t detect filesize.');
                 }
             } else {
                 $size = 0;
             }
 
-            $output->writeln("$size");
+            if ($input->getOption('human')) {
+                $output->writeln(\N98\Util\Filesystem::humanFileSize($size));
+            } else {
+                $output->writeln("$size");
+            }
         }
     }
 }

@@ -2,10 +2,11 @@
 
 namespace N98\Magento\Command\System\Cron;
 
-use N98\Magento\Command\AbstractMagentoCommand;
+use Exception;
+use RuntimeException;
+use Symfony\Component\Console\Helper\DialogHelper;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Validator\Exception\InvalidArgumentException;
 
@@ -31,8 +32,9 @@ HELP;
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param InputInterface $input
+     * @param OutputInterface $output
+     *
      * @return int|void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
@@ -43,7 +45,7 @@ HELP;
             $jobCode = $input->getArgument('job');
             if (!$jobCode) {
                 $this->writeSection($output, 'Cronjob');
-                $jobCode = $this->askJobCode($input, $output, $this->getJobs());
+                $jobCode = $this->askJobCode($output, $this->getJobs());
             }
 
             $jobsRoot = \Mage::getConfig()->getNode('crontab/jobs');
@@ -53,7 +55,7 @@ HELP;
             if (!$jobConfig || !$jobConfig->run) {
                 $jobConfig = $defaultJobsRoot->{$jobCode};
                 if (!$jobConfig || !$jobConfig->run) {
-                    throw new \Exception('No job config found!');
+                    throw new RuntimeException('No job config found!');
                 }
             }
 
@@ -61,11 +63,11 @@ HELP;
 
             if ($runConfig->model) {
 
-                if (!preg_match(self::REGEX_RUN_MODEL, (string)$runConfig->model, $run)) {
-                    throw new \Exception('Invalid model/method definition, expecting "model/class::method".');
+                if (!preg_match(self::REGEX_RUN_MODEL, (string) $runConfig->model, $run)) {
+                    throw new RuntimeException('Invalid model/method definition, expecting "model/class::method".');
                 }
                 if (!($model = \Mage::getModel($run[1])) || !method_exists($model, $run[2])) {
-                    throw new \Exception('Invalid callback: %s::%s does not exist', $run[1], $run[2]);
+                    throw new RuntimeException(sprintf('Invalid callback: %s::%s does not exist', $run[1], $run[2]));
                 }
                 $callback = array($model, $run[2]);
 
@@ -96,42 +98,43 @@ HELP;
                 $output->writeln('<info>done</info>');
             }
             if (empty($callback)) {
-                Mage::throwException(Mage::helper('cron')->__('No callbacks found'));
+                \Mage::throwException(Mage::helper('cron')->__('No callbacks found'));
             }
         }
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
-     * @param array $jobs
-     * @return mixed
-     * @throws \InvalidArgumentException
-     * @throws \Exception
+     * @param OutputInterface $output
+     * @param array           $jobs array of array containing "job" keyed string entries of job-codes
+     *
+     * @return string         job-code
+     * @throws InvalidArgumentException when user selects invalid job interactively
      */
-    protected function askJobCode(InputInterface $input, OutputInterface $output, $jobs)
+    protected function askJobCode(OutputInterface $output, array $jobs)
     {
-        $i = 1;
-        foreach ($jobs as $job) {
-            $question[] = '<comment>[' . ($i++) . ']</comment> ' . $job['Job'] . PHP_EOL;
+        $index = 0;
+        $keyMap = array_keys($jobs);
+        $question = array();
+
+        foreach ($jobs as $key => $job) {
+            $question[] = '<comment>[' . ($index++) . ']</comment> ' . $job['Job'] . PHP_EOL;
         }
         $question[] = '<question>Please select job: </question>' . PHP_EOL;
 
-        $jobCode = $this->getHelperSet()->get('dialog')->askAndValidate(
+        /** @var $dialogHelper DialogHelper */
+        $dialogHelper = $this->getHelperSet()->get('dialog');
+        $jobCode = $dialogHelper->askAndValidate(
             $output,
             $question,
-            function ($typeInput) use ($jobs) {
-                $subArray = array_slice($jobs, $typeInput - 1, 1);
-                $firstElement = current($subArray);
-                if (!$firstElement) {
+            function($typeInput) use ($keyMap, $jobs) {
+                $key = $keyMap[$typeInput];
+                if (!isset($jobs[$key])) {
                     throw new InvalidArgumentException('Invalid job');
                 }
-
-                return $firstElement['Job'];
+                return $jobs[$key]['Job'];
             }
         );
 
         return $jobCode;
     }
-
 }

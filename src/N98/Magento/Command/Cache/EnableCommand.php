@@ -2,10 +2,9 @@
 
 namespace N98\Magento\Command\Cache;
 
-use N98\Magento\Application;
+use N98\Util\BinaryString;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 class EnableCommand extends AbstractCacheCommand
@@ -14,34 +13,31 @@ class EnableCommand extends AbstractCacheCommand
     {
         $this
             ->setName('cache:enable')
+            ->addArgument('code', InputArgument::OPTIONAL, 'Code of cache (Multiple codes sperated by comma)')
             ->setDescription('Enables magento caches')
         ;
     }
 
-    public function isEnabled()
-    {
-        return $this->getApplication()->getMagentoMajorVersion() == Application::MAGENTO_MAJOR_VERSION_1;
-    }
-
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param InputInterface  $input
+     * @param OutputInterface $output
+     *
      * @return int|void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $this->detectMagento($output, true);
         if ($this->initMagento()) {
-            $cacheTypes = array_keys($this->getCoreHelper()->getCacheTypes());
-            $enable = array();
-            foreach ($cacheTypes as $type) {
-                $enable[$type] = 1;
+            $codeArgument = BinaryString::trimExplodeEmpty(',', $input->getArgument('code'));
+            $this->saveCacheStatus($codeArgument, true);
+
+            if (count($codeArgument) > 0) {
+                foreach ($codeArgument as $code) {
+                    $output->writeln('<info>Cache <comment>' . $code . '</comment> enabled</info>');
+                }
+            } else {
+                $output->writeln('<info>Caches enabled</info>');
             }
-
-            \Mage::app()->saveUseCache($enable);
-            $this->_getCacheModel()->flush();
-
-            $output->writeln('<info>Caches enabled</info>');
         }
     }
 }

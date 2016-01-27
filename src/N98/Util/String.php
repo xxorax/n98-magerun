@@ -2,23 +2,15 @@
 
 namespace N98\Util;
 
-class String
+/**
+ * Class String
+ *
+ * This class is PHP 7 incompatible which is why it has been renamed to BinaryString
+ *
+ * @deprecated 1.97.6
+ *
+ * @package N98\Util
+ */
+class String extends BinaryString
 {
-    /**
-     * @param $delimiter
-     * @param $string
-     * @return array
-     */
-    public static function trimExplodeEmpty($delimiter, $string)
-    {
-        $array = explode($delimiter, $string);
-        foreach ($array as $key => &$data) {
-            $data = trim($data);
-            if (empty($data)) {
-                unset($array[$key]);
-            }
-        }
-
-        return $array;
-    }
 }

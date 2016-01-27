@@ -2,16 +2,17 @@
 
 namespace N98\Magento\Command\Database;
 
+use InvalidArgumentException;
 use N98\Magento\Command\AbstractMagentoCommand;
 use N98\Magento\Command\Database\Compressor;
+use N98\Magento\DbSettings;
 use N98\Util\Console\Helper\DatabaseHelper;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Finder\Finder;
 
 abstract class AbstractDatabaseCommand extends AbstractMagentoCommand
 {
     /**
-     * @var array
+     * @var array|DbSettings
      */
     protected $dbSettings;
 
@@ -22,14 +23,13 @@ abstract class AbstractDatabaseCommand extends AbstractMagentoCommand
 
 
     /**
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param OutputInterface $output
      */
     protected function detectDbSettings(OutputInterface $output)
     {
-        $database = $this->getHelper('database'); /* @var $database DatabaseHelper */
-        $database->detectDbSettings($output);
-        $this->isSocketConnect = $database->getIsSocketConnect();
-        $this->dbSettings = $database->getDbSettings();
+        /* @var $database DatabaseHelper */
+        $database = $this->getHelper('database');
+        $this->dbSettings = $database->getDbSettings($output);
     }
 
     /**
@@ -43,7 +43,6 @@ abstract class AbstractDatabaseCommand extends AbstractMagentoCommand
             return $this->getHelper('database')->getConnection();
         }
     }
-
 
     /**
      * Generate help for compression
@@ -65,7 +64,7 @@ abstract class AbstractDatabaseCommand extends AbstractMagentoCommand
     /**
      * @param string $type
      * @return Compressor\AbstractCompressor
-     * @throws \InvalidArgumentException
+     * @throws InvalidArgumentException
      */
     protected function getCompressor($type)
     {
@@ -78,7 +77,7 @@ abstract class AbstractDatabaseCommand extends AbstractMagentoCommand
                 return new Compressor\Gzip;
 
             default:
-                throw new \InvalidArgumentException("Compression type '{$type}' is not supported.");
+                throw new InvalidArgumentException("Compression type '{$type}' is not supported. Known values are: gz, gzip");
         }
     }
 
@@ -89,6 +88,7 @@ abstract class AbstractDatabaseCommand extends AbstractMagentoCommand
      */
     protected function getMysqlClientToolConnectionString()
     {
+        /** @see DatabaseHelper::getMysqlClientToolConnectionString */
         return $this->getHelper('database')->getMysqlClientToolConnectionString();
     }
 
@@ -113,8 +113,6 @@ abstract class AbstractDatabaseCommand extends AbstractMagentoCommand
      * @return array
      *
      * @deprecated Please use database helper
-     *
-     * @throws \Exception
      */
     protected function resolveTables(array $excludes, array $definitions, array $resolved = array())
     {

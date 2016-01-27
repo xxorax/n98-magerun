@@ -2,17 +2,21 @@
 
 namespace N98\Magento\Command\Config;
 
+use InvalidArgumentException;
 use N98\Magento\Command\AbstractMagentoCommand;
 
 abstract class AbstractConfigCommand extends AbstractMagentoCommand
 {
     /**
-     * @return \Mage_Core_Model_Abstract
+     * @return \Mage_Core_Model_Encryption
      */
     protected function getEncryptionModel()
     {
-        return $this->_getModel('core/encryption', 'Mage_Core_Model_Encryption')
-                    ->setHelper($this->getCoreHelper());
+        if ($this->_magentoMajorVersion == self::MAGENTO_MAJOR_VERSION_2) {
+            // @TODO Magento 2 support
+        } else {
+            return \Mage::helper('core')->getEncryptor();
+        }
     }
 
     /**
@@ -45,7 +49,7 @@ abstract class AbstractConfigCommand extends AbstractMagentoCommand
     protected function _validateScopeParam($scope)
     {
         if (!in_array($scope, $this->_scopes)) {
-            throw new \InvalidArgumentException(
+            throw new InvalidArgumentException(
                 'Invalid scope parameter. It must be one of ' . implode(',', $this->_scopes)
             );
         }
@@ -62,7 +66,7 @@ abstract class AbstractConfigCommand extends AbstractMagentoCommand
         if ($scope == 'websites' && !is_numeric($scopeId)) {
             $website = \Mage::app()->getWebsite($scopeId);
             if (!$website) {
-                throw new \InvalidArgumentException('Invalid scope parameter. Website does not exist.');
+                throw new InvalidArgumentException('Invalid scope parameter. Website does not exist.');
             }
 
             return $website->getId();
@@ -71,7 +75,7 @@ abstract class AbstractConfigCommand extends AbstractMagentoCommand
         if ($scope == 'stores' && !is_numeric($scopeId)) {
             $store = \Mage::app()->getStore($scopeId);
             if (!$store) {
-                throw new \InvalidArgumentException('Invalid scope parameter. Store does not exist.');
+                throw new InvalidArgumentException('Invalid scope parameter. Store does not exist.');
             }
 
             return $store->getId();
@@ -85,6 +89,6 @@ abstract class AbstractConfigCommand extends AbstractMagentoCommand
      */
     protected function _getConfigModel()
     {
-        return $this->_getModel('core/config','Mage_Core_Model_Config');
+        return $this->_getModel('core/config', 'Mage_Core_Model_Config');
     }
 }

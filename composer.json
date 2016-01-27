@@ -6,28 +6,34 @@
         "issues": "https://github.com/netz98/n98-magerun/issues"
     },
     "homepage": "http://netz98.github.com/n98-magerun/",
-    "keywords": ["magento", "installer", "cli"],
+    "keywords": ["magento", "installer", "cli", "magerun"],
     "require": {
         "php": ">=5.3.3",
-        "symfony/console": "2.3.7",
-        "symfony/event-dispatcher": "2.3.7",
-        "symfony/finder": "2.3.7",
-        "symfony/yaml": "2.3.7",
-        "symfony/process": "2.3.7",
-        "symfony/validator": "2.3.7",
-        "n98/junit-xml": "dev-master",
-        "fzaninotto/faker": "1.2.0",
-        "composer/composer": "dev-master",
-        "twig/twig": "1.*"
+        "psy/psysh": "~0.4",
+        "symfony/console": "~2.3",
+        "symfony/event-dispatcher": "~2.3",
+        "symfony/finder": "~2.3",
+        "symfony/yaml": "~2.3",
+        "symfony/process": "~2.3",
+        "symfony/validator": "~2.3",
+        "n98/junit-xml": "~1.0",
+        "fzaninotto/faker": "~1.4",
+        "composer/composer": "dev-master#9f6fdfd703f433bd0777fd89fb4684908a6c4f06",
+        "twig/twig": "~1.0"
     },
     "require-dev": {
-        "phpunit/phpunit": "3.7.*",
-        "mikey179/vfsStream": "v1.2.0"
+        "phpunit/phpunit": "~4.1",
+        "mikey179/vfsStream": "~1.4"
     },
     "autoload": {
         "psr-0": {
             "N98": "src",
             "Composer": "src"
+        }
+    },
+    "autoload-dev": {
+        "psr-0": {
+            "N98": "tests"
         }
     },
     "authors": [

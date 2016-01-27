@@ -4,7 +4,6 @@ namespace N98\Magento\Command\Admin\User;
 
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 class CreateUserCommand extends AbstractAdminUserCommand
@@ -24,8 +23,8 @@ class CreateUserCommand extends AbstractAdminUserCommand
     }
 
     /**
-     * @param \Symfony\Component\Console\Input\InputInterface $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param InputInterface $input
+     * @param OutputInterface $output
      * @return int|void
      */
     protected function execute(InputInterface $input, OutputInterface $output)
@@ -33,46 +32,25 @@ class CreateUserCommand extends AbstractAdminUserCommand
         $this->detectMagento($output, true);
         if ($this->initMagento()) {
 
-            // Username
-            if (($username = $input->getArgument('username')) === null) {
-                $dialog = $this->getHelperSet()->get('dialog');
-                $username = $dialog->ask($output, '<question>Username:</question>');
-            }
-
-            // Email
-            if (($email = $input->getArgument('email')) === null) {
-                $dialog = $this->getHelperSet()->get('dialog');
-                $email = $dialog->ask($output, '<question>Email:</question>');
-            }
-
-            // Password
+            $username = $this->getOrAskForArgument('username', $input, $output);
+            $email = $this->getOrAskForArgument('email', $input, $output);
             if (($password = $input->getArgument('password')) === null) {
                 $dialog = $this->getHelperSet()->get('dialog');
-                $password = $dialog->ask($output, '<question>Password:</question>');
+                $password = $dialog->askHiddenResponse($output, '<question>Password:</question>');
             }
 
-            // Firstname
-            if (($firstname = $input->getArgument('firstname')) === null) {
-                $dialog = $this->getHelperSet()->get('dialog');
-                $firstname = $dialog->ask($output, '<question>Firstname:</question>');
-            }
-
-            // Lastname
-            if (($lastname = $input->getArgument('lastname')) === null) {
-                $dialog = $this->getHelperSet()->get('dialog');
-                $lastname = $dialog->ask($output, '<question>Lastname:</question>');
-            }
-
+            $firstname = $this->getOrAskForArgument('firstname', $input, $output);
+            $lastname = $this->getOrAskForArgument('lastname', $input, $output);
             if (($roleName = $input->getArgument('role')) != null) {
                 $role = $this->getRoleModel()->load($roleName, 'role_name');
-                if(!$role->getId()) {
+                if (!$role->getId()) {
                     $output->writeln('<error>Role was not found</error>');
                     return;
                 }
             } else {
                 // create new role if not yet existing
                 $role = $this->getRoleModel()->load('Development', 'role_name');
-                if(!$role->getId()) {
+                if (!$role->getId()) {
                     $role->setName('Development')
                         ->setRoleType('G')
                         ->save();
